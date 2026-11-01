@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vortex Playground</title>
+<meta name="description" content="Live 3D vortex-filament simulator in the browser: colliding vortex rings reconnect, leapfrogging rings, a trefoil knot and contrail (Crow) instability. By Team Vortex.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2232%22 fill=%22none%22 stroke=%22%233fd8ff%22 stroke-width=%2214%22/%3E%3C/svg%3E">
+<style>
+:root {
+  --stage: #0b1020;
+  --bg: #0b1020;
+  --panel: rgba(16, 22, 42, 0.78);
+  --border: rgba(140, 170, 220, 0.22);
+  --text: #e6ecf8;
+  --muted: #93a0bb;
+  --accent: #3fd8ff;
+  --btn: rgba(255, 255, 255, 0.07);
+  --btn-hover: rgba(255, 255, 255, 0.14);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #eef2f8; --panel: rgba(250, 252, 255, 0.9); --border: rgba(30, 50, 90, 0.18);
+    --text: #141a2c; --muted: #55607a; --accent: #0a8fb8;
+    --btn: rgba(10, 20, 50, 0.05); --btn-hover: rgba(10, 20, 50, 0.1);
+  }
+}
+:root[data-theme="light"] {
+  --bg: #eef2f8; --panel: rgba(250, 252, 255, 0.9); --border: rgba(30, 50, 90, 0.18);
+  --text: #141a2c; --muted: #55607a; --accent: #0a8fb8;
+  --btn: rgba(10, 20, 50, 0.05); --btn-hover: rgba(10, 20, 50, 0.1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body { background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#stage { position: fixed; inset: 0; background: var(--stage); }
+#stage canvas { display: block; touch-action: none; }
+h1 {
+  position: fixed; top: 16px; left: 16px; right: 16px; margin: 0;
+  font-size: clamp(20px, 3.4vw, 30px); font-weight: 600; color: #e6ecf8; pointer-events: none;
+}
+.panel {
+  position: fixed; left: 16px; right: 16px; bottom: 32px; max-width: 720px; margin: 0 auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.row { display: flex; gap: 8px; }
+.scenes button { flex: 1 1 0; min-width: 0; }
+button {
+  font: inherit; font-size: clamp(12px, 3.4vw, 19px); font-weight: 600; color: var(--text);
+  background: var(--btn); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 4px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+button:hover { background: var(--btn-hover); }
+button.on { border-color: var(--accent); color: var(--accent); }
+#play { flex: 0 0 48px; }
+@media (max-width: 420px) { .panel { padding: 8px; } .row { gap: 5px; } #play { flex-basis: 40px; } }
+#moreBtn {
+  display: block; margin: 8px auto 0; font-size: 13px; font-weight: 500; padding: 2px 10px;
+  border: none; background: none; color: var(--muted);
+}
+#more { display: none; margin-top: 8px; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+#more.open { display: flex; }
+#more label { display: flex; align-items: center; gap: 8px; flex: 1 1 180px; color: var(--muted); font-size: 14px; }
+#more input { flex: 1; min-width: 60px; accent-color: var(--accent); }
+#more button { font-size: 14px; padding: 6px 12px; }
+footer { position: fixed; left: 16px; right: 16px; bottom: 8px; text-align: center; font-size: 11px; color: #93a0bb; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<h1>Vortex rings, simulated live. Drag to rotate.</h1>
+<div class="panel">
+  <div class="row scenes">
+    <button data-scene="headon">Collide</button>
+    <button data-scene="leapfrog">Leapfrog</button>
+    <button data-scene="trefoil">Knot</button>
+    <button data-scene="crow">Contrails</button>
+    <button id="play" aria-label="Play or pause">&#10073;&#10073;</button>
+  </div>
+  <button id="moreBtn">More</button>
+  <div id="more">
+    <label>Speed <input id="speed" type="range" min="0.25" max="3" step="0.25" value="1"></label>
+    <label>Circulation <input id="gamma" type="range" min="0.25" max="3" step="0.05" value="1"></label>
+    <label>Spacing <input id="spacing" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+    <button id="reset">Reset</button>
+  </div>
+</div>
+<footer><a href="https://github.com/vortex-claw/vortex-playground" style="color:inherit">github.com/vortex-claw</a></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+// PHYSICS-BEGIN
+var VortexSim = (function () {
+  // Thin-core filaments, Rosenhead-Moore regularized Biot-Savart, O(N^2) direct sum.
+  // All filaments share one circulation Gamma; sign is encoded by orientation, so
+  // cut-and-splice reconnection is always consistent.
+  var FOUR_PI = 4 * Math.PI;
+  // RM kernel with node quadrature gives U = G/(4 pi R) (ln(8R/delta) + C).
+  // delta is set so the ring speed matches Kelvin's uniform-core result (-1/4).
+  var DELTA_OVER_A = Math.exp(-0.75); // RM kernel: U = G/(4 pi R)(ln(8R/delta) - 1)  =>  delta = a e^{-3/4}
+
+  function Sim(opts) {
+    opts = opts || {};
+    this.gamma = opts.gamma || 1;
+    this.a = opts.a || 0.1;
+    this.ds0 = this.ds00 = opts.ds0 || 0.045;
+    this.maxNodes = opts.maxNodes || 800;
+    this.dt = opts.dt || 0.02;
+    this.t = 0;
+    this.fils = []; // {x: Float64Array(3n), tag: Float32Array(n), n}
+    this.nRecon = 0;
+    this.recent = []; // {p:[x,y,z], until:t}
+    this.stepCount = 0;
+    this.reconnect = opts.reconnect !== false;
+    this.resampleEvery = opts.resampleEvery || 4;
+    this.reconEvery = opts.reconEvery || 2;
+  }
+
+  Sim.prototype.addFilament = function (pts, tag) {
+    var n = pts.length, x = new Float64Array(3 * n), tg = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      x[3 * i] = pts[i][0]; x[3 * i + 1] = pts[i][1]; x[3 * i + 2] = pts[i][2];
+      tg[i] = Array.isArray(tag) ? tag[i] : (tag || 0);
+    }
+    this.fils.push({ x: x, tag: tg, n: n });
+  };
+
+  Sim.prototype.totalNodes = function () {
+    var s = 0; for (var k = 0; k < this.fils.length; k++) s += this.fils[k].n; return s;
+  };
+
+  // Gather positions into flat array P; compute tangent vectors T (central diff).
+  function tangents(P, offs, ns, T) {
+    for (var f = 0; f < ns.length; f++) {
+      var o = offs[f], n = ns[f];
+      for (var i = 0; i < n; i++) {
+        var ip = o + ((i + 1) % n), im = o + ((i - 1 + n) % n), c = o + i;
+        T[3 * c] = 0.5 * (P[3 * ip] - P[3 * im]);
+        T[3 * c + 1] = 0.5 * (P[3 * ip + 1] - P[3 * im + 1]);
+        T[3 * c + 2] = 0.5 * (P[3 * ip + 2] - P[3 * im + 2]);
+      }
+    }
+  }
+
+  Sim.prototype.velocity = function (P, offs, ns, U) {
+    var N = P.length / 3, T = this._T;
+    if (!T || T.length !== P.length) T = this._T = new Float64Array(P.length);
+    tangents(P, offs, ns, T);
+    var d = this.a * DELTA_OVER_A, d2 = d * d, g = this.gamma / FOUR_PI;
+    var umax = 3 * Math.abs(this.gamma) / (FOUR_PI * d);
+    for (var i = 0; i < N; i++) {
+      var xi = P[3 * i], yi = P[3 * i + 1], zi = P[3 * i + 2], ux = 0, uy = 0, uz = 0;
+      for (var j = 0; j < N; j++) {
+        var rx = xi - P[3 * j], ry = yi - P[3 * j + 1], rz = zi - P[3 * j + 2];
+        var r2 = rx * rx + ry * ry + rz * rz + d2;
+        var w = 1 / (r2 * Math.sqrt(r2));
+        var tx = T[3 * j], ty = T[3 * j + 1], tz = T[3 * j + 2];
+        ux += (ty * rz - tz * ry) * w;
+        uy += (tz * rx - tx * rz) * w;
+        uz += (tx * ry - ty * rx) * w;
+      }
+      ux *= g; uy *= g; uz *= g;
+      var m = Math.sqrt(ux * ux + uy * uy + uz * uz);
+      if (m > umax) { var s = umax / m; ux *= s; uy *= s; uz *= s; }
+      U[3 * i] = ux; U[3 * i + 1] = uy; U[3 * i + 2] = uz;
+    }
+  };
+
+  Sim.prototype.gather = function () {
+    var N = this.totalNodes(), P = new Float64Array(3 * N), offs = [], ns = [], o = 0;
+    for (var f = 0; f < this.fils.length; f++) {
+      var F = this.fils[f]; offs.push(o); ns.push(F.n); P.set(F.x, 3 * o); o += F.n;
+    }
+    return { P: P, offs: offs, ns: ns };
+  };
+
+  Sim.prototype.scatter = function (P, offs) {
+    for (var f = 0; f < this.fils.length; f++) {
+      var F = this.fils[f]; F.x.set(P.subarray(3 * offs[f], 3 * (offs[f] + F.n)));
+    }
+  };
+
+  // SSP-RK3 step
+  Sim.prototype.step = function (dtReq) {
+    if (!this.fils.length) return;
+    var G = this.gather(), P = G.P, L = P.length;
+    var U = new Float64Array(L), P1 = new Float64Array(L), P2 = new Float64Array(L);
+    this.velocity(P, G.offs, G.ns, U);
+    var um = 1e-9;
+    for (var i = 0; i < L; i += 3) um = Math.max(um, Math.hypot(U[i], U[i + 1], U[i + 2]));
+    var dtCap = 0.4 * this.ds0 / um;
+    var dt = Math.min(dtReq || this.dt, dtCap, 0.05);
+    for (i = 0; i < L; i++) P1[i] = P[i] + dt * U[i];
+    this.velocity(P1, G.offs, G.ns, U);
+    for (i = 0; i < L; i++) P2[i] = 0.75 * P[i] + 0.25 * (P1[i] + dt * U[i]);
+    this.velocity(P2, G.offs, G.ns, U);
+    for (i = 0; i < L; i++) P[i] = P[i] / 3 + (2 / 3) * (P2[i] + dt * U[i]);
+    this.scatter(P, G.offs);
+    this.t += dt;
+    this.stepCount++;
+    if (this.reconnect && this.stepCount % this.reconEvery === 0) {
+      var k = 0; while (k < 4 && this.tryReconnect()) k++;
+      if (k) this.resampleAll();
+    }
+    if (this.stepCount % this.resampleEvery === 0) this.resampleAll();
+    return dt;
+  };
+
+  // Uniform-arclength resampling with Catmull-Rom interpolation.
+  function resample(F, ds0) {
+    var n = F.n, x = F.x, s = new Float64Array(n + 1);
+    for (var i = 0; i < n; i++) {
+      var j = (i + 1) % n;
+      s[i + 1] = s[i] + Math.hypot(x[3 * j] - x[3 * i], x[3 * j + 1] - x[3 * i + 1], x[3 * j + 2] - x[3 * i + 2]);
+    }
+    var Ltot = s[n], m = Math.max(8, Math.round(Ltot / ds0));
+    var y = new Float64Array(3 * m), tg = new Float32Array(m), seg = 0;
+    for (var k = 0; k < m; k++) {
+      var sk = (k * Ltot) / m;
+      while (seg < n - 1 && s[seg + 1] < sk) seg++;
+      var len = s[seg + 1] - s[seg], t = len > 0 ? (sk - s[seg]) / len : 0;
+      var i0 = (seg - 1 + n) % n, i1 = seg, i2 = (seg + 1) % n, i3 = (seg + 2) % n;
+      var t2 = t * t, t3 = t2 * t;
+      var c0 = -0.5 * t3 + t2 - 0.5 * t, c1 = 1.5 * t3 - 2.5 * t2 + 1,
+          c2 = -1.5 * t3 + 2 * t2 + 0.5 * t, c3 = 0.5 * t3 - 0.5 * t2;
+      for (var c = 0; c < 3; c++)
+        y[3 * k + c] = c0 * x[3 * i0 + c] + c1 * x[3 * i1 + c] + c2 * x[3 * i2 + c] + c3 * x[3 * i3 + c];
+      tg[k] = (1 - t) * F.tag[i1] + t * F.tag[i2];
+    }
+    return { x: y, tag: tg, n: m, L: Ltot };
+  }
+
+  // Curvature-limited smoothing: only relaxes sharp kinks (e.g. fresh reconnection cusps).
+  function smoothKinks(F) {
+    var n = F.n, x = F.x, y = new Float64Array(x);
+    for (var i = 0; i < n; i++) {
+      var ip = (i + 1) % n, im = (i - 1 + n) % n;
+      var ax = x[3 * i] - x[3 * im], ay = x[3 * i + 1] - x[3 * im + 1], az = x[3 * i + 2] - x[3 * im + 2];
+      var bx = x[3 * ip] - x[3 * i], by = x[3 * ip + 1] - x[3 * i + 1], bz = x[3 * ip + 2] - x[3 * i + 2];
+      var c = (ax * bx + ay * by + az * bz) / (Math.hypot(ax, ay, az) * Math.hypot(bx, by, bz) + 1e-30);
+      if (c < 0.9) { // turning angle > ~25 deg
+        var w = c < 0.5 ? 0.5 : 0.25;
+        for (var k = 0; k < 3; k++) y[3 * i + k] = (1 - w) * x[3 * i + k] + 0.5 * w * (x[3 * im + k] + x[3 * ip + k]);
+      }
+    }
+    F.x = y;
+  }
+
+  Sim.prototype.resampleAll = function () {
+    var out = [];
+    for (var f = 0; f < this.fils.length; f++) {
+      smoothKinks(this.fils[f]);
+      var R = resample(this.fils[f], this.ds0);
+      if (R.L > 12 * this.a) out.push({ x: R.x, tag: R.tag, n: R.n }); // drop tiny loops (core-scale rings dissipate)
+    }
+    this.fils = out;
+    var N = this.totalNodes();
+    if (N > this.maxNodes && this.ds0 < 1.6 * this.ds00) { this.ds0 = Math.min(1.6 * this.ds00, this.ds0 * N / this.maxNodes); this.resampleAll(); return; }
+    // hard cap: drop the smallest loops
+    if (N > 1.3 * this.maxNodes) {
+      this.fils.sort(function (p, q) { return q.n - p.n; });
+      while (this.fils.length > 1 && this.totalNodes() > 1.3 * this.maxNodes) this.fils.pop();
+    }
+  };
+
+  // Cut-and-splice: find the closest antiparallel segment pair within ~a.
+  Sim.prototype.tryReconnect = function () {
+    var rc = 0.6 * this.a, rc2 = rc * rc, best = null, bestD = rc2, fils = this.fils, t = this.t;
+    this.recent = this.recent.filter(function (r) { return r.until > t; });
+    var segs = [];
+    for (var f = 0; f < fils.length; f++) {
+      var F = fils[f], x = F.x, n = F.n;
+      for (var i = 0; i < n; i++) {
+        var j = (i + 1) % n;
+        var tx = x[3 * j] - x[3 * i], ty = x[3 * j + 1] - x[3 * i + 1], tz = x[3 * j + 2] - x[3 * i + 2];
+        var l = Math.hypot(tx, ty, tz) || 1;
+        segs.push(f, i, 0.5 * (x[3 * i] + x[3 * j]), 0.5 * (x[3 * i + 1] + x[3 * j + 1]),
+          0.5 * (x[3 * i + 2] + x[3 * j + 2]), tx / l, ty / l, tz / l);
+      }
+    }
+    var S = segs.length / 8, gapMin = Math.max(6, Math.ceil(6 * this.a / this.ds0));
+    for (var p = 0; p < S; p++) {
+      var pf = segs[8 * p], pi = segs[8 * p + 1];
+      for (var q = p + 1; q < S; q++) {
+        var dx = segs[8 * p + 2] - segs[8 * q + 2]; if (dx > rc || dx < -rc) continue;
+        var dy = segs[8 * p + 3] - segs[8 * q + 3]; if (dy > rc || dy < -rc) continue;
+        var dz = segs[8 * p + 4] - segs[8 * q + 4];
+        var d2 = dx * dx + dy * dy + dz * dz; if (d2 >= bestD) continue;
+        var qf = segs[8 * q], qi = segs[8 * q + 1];
+        if (pf === qf) {
+          var n0 = fils[pf].n, gap = Math.abs(pi - qi); gap = Math.min(gap, n0 - gap);
+          if (gap < gapMin) continue;
+        }
+        var dot = segs[8 * p + 5] * segs[8 * q + 5] + segs[8 * p + 6] * segs[8 * q + 6] + segs[8 * p + 7] * segs[8 * q + 7];
+        if (dot > -0.5) continue;
+        var mx = 0.5 * (segs[8 * p + 2] + segs[8 * q + 2]), my = 0.5 * (segs[8 * p + 3] + segs[8 * q + 3]), mz = 0.5 * (segs[8 * p + 4] + segs[8 * q + 4]);
+        var blocked = false;
+        for (var r = 0; r < this.recent.length; r++) {
+          var R0 = this.recent[r].p;
+          if ((R0[0] - mx) * (R0[0] - mx) + (R0[1] - my) * (R0[1] - my) + (R0[2] - mz) * (R0[2] - mz) < 64 * rc2) { blocked = true; break; }
+        }
+        if (blocked) continue;
+        bestD = d2; best = [pf, pi, qf, qi, mx, my, mz];
+      }
+    }
+    if (!best) return false;
+    this.splice(best[0], best[1], best[2], best[3]);
+    var tau = 2 * Math.PI * this.a * this.a / Math.abs(this.gamma); // ~ core turnover time
+    this.recent.push({ p: [best[4], best[5], best[6]], until: this.t + 60 * tau });
+    this.nRecon++;
+    return true;
+  };
+
+  function sub(F, idx) {
+    var n = idx.length, x = new Float64Array(3 * n), tg = new Float32Array(n);
+    for (var k = 0; k < n; k++) {
+      var i = idx[k]; x[3 * k] = F.x[3 * i]; x[3 * k + 1] = F.x[3 * i + 1]; x[3 * k + 2] = F.x[3 * i + 2]; tg[k] = F.tag[i];
+    }
+    return { x: x, tag: tg, n: n };
+  }
+
+  Sim.prototype.splice = function (fa, i, fb, j) {
+    var A = this.fils[fa], k, out = [];
+    if (fa === fb) {
+      if (i > j) { var tmp = i; i = j; j = tmp; }
+      var l1 = [], l2 = [];
+      for (k = 0; k <= i; k++) l1.push(k);
+      for (k = j + 1; k < A.n; k++) l1.push(k);
+      for (k = i + 1; k <= j; k++) l2.push(k);
+      out = [sub(A, l1), sub(A, l2)];
+      this.fils.splice(fa, 1);
+    } else {
+      var B = this.fils[fb], n = A.n + B.n, x = new Float64Array(3 * n), tg = new Float32Array(n), c = 0;
+      var push = function (F, idx) {
+        x[3 * c] = F.x[3 * idx]; x[3 * c + 1] = F.x[3 * idx + 1]; x[3 * c + 2] = F.x[3 * idx + 2]; tg[c] = F.tag[idx]; c++;
+      };
+      for (k = 0; k <= i; k++) push(A, k);
+      for (k = 1; k <= B.n; k++) push(B, (j + k) % B.n);
+      for (k = i + 1; k < A.n; k++) push(A, k);
+      out = [{ x: x, tag: tg, n: n }];
+      this.fils = this.fils.filter(function (_, idx) { return idx !== fa && idx !== fb; });
+    }
+    for (k = 0; k < out.length; k++) this.fils.push(out[k]);
+  };
+
+  // Diagnostics: impulse P = G/2 sum x × dl ; energy E = G^2/(8 pi) sum dl_i.dl_j / sqrt(r^2+d^2)
+  Sim.prototype.diagnostics = function () {
+    var G = this.gather(), P = G.P, N = P.length / 3, T = new Float64Array(P.length);
+    tangents(P, G.offs, G.ns, T);
+    var I = [0, 0, 0], E = 0, d2 = Math.pow(this.a * DELTA_OVER_A, 2), L = 0;
+    for (var i = 0; i < N; i++) {
+      var x = P[3 * i], y = P[3 * i + 1], z = P[3 * i + 2], tx = T[3 * i], ty = T[3 * i + 1], tz = T[3 * i + 2];
+      I[0] += 0.5 * this.gamma * (y * tz - z * ty);
+      I[1] += 0.5 * this.gamma * (z * tx - x * tz);
+      I[2] += 0.5 * this.gamma * (x * ty - y * tx);
+      L += Math.hypot(tx, ty, tz);
+      for (var j = 0; j < N; j++) {
+        var rx = x - P[3 * j], ry = y - P[3 * j + 1], rz = z - P[3 * j + 2];
+        E += (tx * T[3 * j] + ty * T[3 * j + 1] + tz * T[3 * j + 2]) / Math.sqrt(rx * rx + ry * ry + rz * rz + d2);
+      }
+    }
+    E *= this.gamma * this.gamma / (8 * Math.PI);
+    return { impulse: I, energy: E, length: L, nodes: N, filaments: this.fils.length };
+  };
+
+  // ---- scene builders ----
+  function ring(R, c, axisTilt, n, reverse) {
+    var pts = [], ct = Math.cos(axisTilt), st = Math.sin(axisTilt);
+    for (var k = 0; k < n; k++) {
+      var th = 2 * Math.PI * k / n * (reverse ? -1 : 1);
+      var x = R * Math.cos(th), y = R * Math.sin(th), z = 0;
+      // tilt about x-axis
+      var y2 = y * ct - z * st, z2 = y * st + z * ct;
+      pts.push([x + c[0], y2 + c[1], z2 + c[2]]);
+    }
+    return pts;
+  }
+
+  function build(scene, s, opts) {
+    s = s || 1;
+    var sim = new Sim(opts), ds = sim.ds0, n = Math.round(2 * Math.PI / ds);
+    if (scene === 'headon') {
+      var h = 1.2 * s;
+      sim.addFilament(ring(1, [0.06, 0, -h], 0.2, n, false), 0); // moves +z
+      sim.addFilament(ring(1, [-0.06, 0, h], -0.2, n, true), 1); // moves -z
+    } else if (scene === 'leapfrog') {
+      var h2 = 0.35 * s;
+      sim.addFilament(ring(1, [0, 0, -h2], 0, n, false), 0);
+      sim.addFilament(ring(1, [0, 0, h2], 0, n, false), 1);
+    } else if (scene === 'trefoil') {
+      var m = 220, pts = [], sc = 0.45;
+      for (var k = 0; k < m; k++) {
+        var t = 2 * Math.PI * k / m, r = 2 + Math.cos(3 * t);
+        pts.push([sc * r * Math.cos(2 * t), sc * r * Math.sin(2 * t), sc * Math.sin(3 * t) * s]);
+      }
+      var tags = pts.map(function (_, k) { return 0.5 - 0.5 * Math.cos(2 * Math.PI * k / m); });
+      sim.addFilament(pts, tags);
+    } else if (scene === 'crow') {
+      // antiparallel pair closed into one long loop; Crow wavelength ~ 8.6 b
+      var b = 0.5 * s, half = 4.3, amp = 0.03, lam = 8.6 * b, pts2 = [], tg2 = [];
+      var nl = Math.round(2 * half / ds), na = Math.max(6, Math.round(Math.PI * b / 2 / ds));
+      var pert = function (x) { return amp * Math.cos(2 * Math.PI * x / lam) * Math.exp(-Math.pow(x / (0.8 * half), 8)); };
+      for (var k2 = 0; k2 < nl; k2++) { var x = -half + 2 * half * k2 / nl, p = pert(x); pts2.push([x, b / 2 + p, p]); tg2.push(0); }
+      for (k2 = 0; k2 < na; k2++) { var a2 = Math.PI / 2 - Math.PI * k2 / na; pts2.push([half + 0.5 * b * Math.cos(a2), 0.5 * b * Math.sin(a2), 0]); tg2.push(0.5); }
+      for (k2 = 0; k2 < nl; k2++) { var x2 = half - 2 * half * k2 / nl, p2 = pert(x2); pts2.push([x2, -b / 2 - p2, p2]); tg2.push(1); }
+      for (k2 = 0; k2 < na; k2++) { var a3 = -Math.PI / 2 - Math.PI * k2 / na; pts2.push([-half + 0.5 * b * Math.cos(a3), 0.5 * b * Math.sin(a3), 0]); tg2.push(0.5); }
+      sim.addFilament(pts2, tg2);
+      sim.resampleAll();
+    }
+    return sim;
+  }
+
+  return { Sim: Sim, build: build, ring: ring, setDeltaOverA: function (v) { DELTA_OVER_A = v; }, getDeltaOverA: function () { return DELTA_OVER_A; } };
+})();
+if (typeof module !== 'undefined') module.exports = VortexSim;
+// PHYSICS-END
+</script>
+<script>
+(function () {
+  var stage = document.getElementById('stage');
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x0b1020, 1);
+  stage.appendChild(renderer.domElement);
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x0b1020, 9, 22);
+  var camera = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
+  camera.up.set(0, 0, 1);
+  var controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x1a1030, 0.75));
+  var key = new THREE.DirectionalLight(0xffffff, 0.75); key.position.set(4, 6, 5); scene.add(key);
+  var rim = new THREE.DirectionalLight(0x88aaff, 0.35); rim.position.set(-5, -2, -4); scene.add(rim);
+  var mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.1 });
+  var group = new THREE.Group(); scene.add(group);
+  var C0 = new THREE.Color(0x3fd8ff), C1 = new THREE.Color(0xff9a3c);
+
+  var sim = null, current = 'headon', playing = true;
+  var el = function (id) { return document.getElementById(id); };
+  var tMax = { headon: 10, leapfrog: 45, trefoil: 8, crow: 8 };
+  var cams = { headon: [4.2, 2.2, 3.6], leapfrog: [4.2, 1.8, 3.2], trefoil: [0.8, -3.4, 3.4], crow: [0.5, -5.5, 5.5] };
+
+  function load(name, keepCam) {
+    current = name;
+    sim = VortexSim.build(name, +el('spacing').value, { gamma: +el('gamma').value, maxNodes: 700 });
+    if (!keepCam) { var c = cams[name]; camera.position.set(c[0], c[1], c[2]); controls.target.set(0, 0, 0); }
+    controls.update();
+    document.querySelectorAll('[data-scene]').forEach(function (b) { b.classList.toggle('on', b.dataset.scene === name); });
+  }
+
+  // Tube mesh with twist-corrected parallel-transport frames, per-vertex colour from node tags.
+  var M = 10, rad = 0.045;
+  function tube(F) {
+    var n = F.n, x = F.x, pos = new Float32Array((n + 1) * M * 3), nor = new Float32Array((n + 1) * M * 3), col = new Float32Array((n + 1) * M * 3);
+    var T = [], i, k;
+    for (i = 0; i < n; i++) {
+      var ip = (i + 1) % n, im = (i - 1 + n) % n;
+      var t = new THREE.Vector3(x[3 * ip] - x[3 * im], x[3 * ip + 1] - x[3 * im + 1], x[3 * ip + 2] - x[3 * im + 2]).normalize();
+      T.push(t);
+    }
+    var N0 = new THREE.Vector3(0, 0, 1); if (Math.abs(N0.dot(T[0])) > 0.9) N0.set(1, 0, 0);
+    N0.sub(T[0].clone().multiplyScalar(N0.dot(T[0]))).normalize();
+    var Ns = [N0.clone()], Nc = N0.clone();
+    for (i = 1; i <= n; i++) {
+      var tt = T[i % n];
+      Nc.sub(tt.clone().multiplyScalar(Nc.dot(tt))).normalize();
+      Ns.push(Nc.clone());
+    }
+    var Bend = new THREE.Vector3().crossVectors(T[0], N0);
+    var phi = Math.atan2(Ns[n].dot(Bend), Ns[n].dot(N0));
+    var c = new THREE.Color(), v = 0;
+    for (i = 0; i <= n; i++) {
+      var ii = i % n, Ti = T[ii], Ni = Ns[i].clone().applyAxisAngle(Ti, -phi * i / n), Bi = new THREE.Vector3().crossVectors(Ti, Ni);
+      c.copy(C0).lerp(C1, F.tag[ii]);
+      for (k = 0; k < M; k++) {
+        var a = 2 * Math.PI * k / M, ca = Math.cos(a), sa = Math.sin(a);
+        var nx = ca * Ni.x + sa * Bi.x, ny = ca * Ni.y + sa * Bi.y, nz = ca * Ni.z + sa * Bi.z;
+        pos[v] = x[3 * ii] + rad * nx; pos[v + 1] = x[3 * ii + 1] + rad * ny; pos[v + 2] = x[3 * ii + 2] + rad * nz;
+        nor[v] = nx; nor[v + 1] = ny; nor[v + 2] = nz;
+        col[v] = c.r; col[v + 1] = c.g; col[v + 2] = c.b; v += 3;
+      }
+    }
+    var idx = [];
+    for (i = 0; i < n; i++) for (k = 0; k < M; k++) {
+      var a0 = i * M + k, a1 = i * M + (k + 1) % M, b0 = a0 + M, b1 = a1 + M;
+      idx.push(a0, b0, a1, a1, b0, b1);
+    }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setIndex(idx);
+    return g;
+  }
+
+  function redraw() {
+    while (group.children.length) { var m = group.children.pop(); m.geometry.dispose(); }
+    for (var f = 0; f < sim.fils.length; f++) group.add(new THREE.Mesh(tube(sim.fils[f]), mat));
+  }
+
+  function resize() {
+    var w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h); camera.aspect = w / h; camera.fov = w < h ? 68 : 45; camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize); resize();
+
+  var budget = 0;
+  function frame() {
+    requestAnimationFrame(frame);
+    if (playing && sim) {
+      sim.gamma = +el('gamma').value;
+      // advance a fixed amount of sim time per frame, with a wall-clock cap to keep 60 fps
+      var target = 0.02 * +el('speed').value, t0 = performance.now(), adv = 0;
+      while (adv < target && performance.now() - t0 < 10) adv += sim.step(Math.min(0.02, target - adv) || 0.02);
+      // loop each scene over its interesting window (the thin-core model has no viscosity,
+      // so late-time tangles are not meaningful)
+      if (sim.t > tMax[current] || !sim.fils.length) load(current, true);
+    }
+    if (sim) {
+      redraw();
+      // follow the centroid so travelling rings stay in view
+      var cx = 0, cy = 0, cz = 0, cnt = 0;
+      sim.fils.forEach(function (F) { for (var i = 0; i < F.n; i++) { cx += F.x[3 * i]; cy += F.x[3 * i + 1]; cz += F.x[3 * i + 2]; cnt++; } });
+      if (cnt) {
+        var d = new THREE.Vector3(cx / cnt, cy / cnt, cz / cnt).sub(controls.target).multiplyScalar(0.05);
+        controls.target.add(d); camera.position.add(d);
+      }
+    }
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  document.querySelectorAll('[data-scene]').forEach(function (b) {
+    b.addEventListener('click', function () { load(b.dataset.scene); playing = true; el('play').innerHTML = '&#10073;&#10073;'; });
+  });
+  el('play').addEventListener('click', function () { playing = !playing; this.innerHTML = playing ? '&#10073;&#10073;' : '&#9654;'; });
+  el('moreBtn').addEventListener('click', function () { var m = el('more'); m.classList.toggle('open'); this.textContent = m.classList.contains('open') ? 'Less' : 'More'; });
+  el('reset').addEventListener('click', function () { load(current, true); });
+  el('spacing').addEventListener('change', function () { load(current, true); });
+
+  load('headon');
+  frame();
+})();
+</script>
+</body>
+</html>
