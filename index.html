@@ -191,6 +191,13 @@ var VortexSim = (function () {
     return dt;
   };
 
+  // Advance by exactly Dt of simulated time (fixed per rendered frame), sub-cycling
+  // internally when the CFL limit requires smaller steps. Keeps on-screen speed uniform.
+  Sim.prototype.advance = function (Dt) {
+    var left = Dt, guard = 0;
+    while (left > 1e-9 && guard++ < 200 && this.fils.length) left -= this.step(Math.min(left, this.dt));
+  };
+
   // Uniform-arclength resampling with Catmull-Rom interpolation.
   function resample(F, ds0) {
     var n = F.n, x = F.x, s = new Float64Array(n + 1);
@@ -216,9 +223,10 @@ var VortexSim = (function () {
   }
 
   // Curvature-limited smoothing: only relaxes sharp kinks (e.g. fresh reconnection cusps).
-  function smoothKinks(F) {
+  function smoothKinks(F, ctr, rad2) {
     var n = F.n, x = F.x, y = new Float64Array(x);
     for (var i = 0; i < n; i++) {
+      if (ctr) { var ex = x[3 * i] - ctr[0], ey = x[3 * i + 1] - ctr[1], ez = x[3 * i + 2] - ctr[2]; if (ex * ex + ey * ey + ez * ez > rad2) continue; }
       var ip = (i + 1) % n, im = (i - 1 + n) % n;
       var ax = x[3 * i] - x[3 * im], ay = x[3 * i + 1] - x[3 * im + 1], az = x[3 * i + 2] - x[3 * im + 2];
       var bx = x[3 * ip] - x[3 * i], by = x[3 * ip + 1] - x[3 * i + 1], bz = x[3 * ip + 2] - x[3 * i + 2];
@@ -290,6 +298,7 @@ var VortexSim = (function () {
     }
     if (!best) return false;
     this.splice(best[0], best[1], best[2], best[3]);
+
     var tau = 2 * Math.PI * this.a * this.a / Math.abs(this.gamma); // ~ core turnover time
     this.recent.push({ p: [best[4], best[5], best[6]], until: this.t + 60 * tau });
     this.nRecon++;
@@ -407,6 +416,8 @@ if (typeof module !== 'undefined') module.exports = VortexSim;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x0e0e0e, 1);
   stage.appendChild(renderer.domElement);
+  var canvas = renderer.domElement, fading = false;
+  canvas.style.transition = 'opacity 0.4s ease';
   var scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x0e0e0e, 9, 22);
   var camera = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
@@ -434,7 +445,7 @@ if (typeof module !== 'undefined') module.exports = VortexSim;
   }
 
   // Tube mesh with twist-corrected parallel-transport frames, per-vertex colour from node tags.
-  var M = 10, rad = 0.045;
+  var M = 16, rad = 0.045;
   function tube(F) {
     var n = F.n, x = F.x, pos = new Float32Array((n + 1) * M * 3), nor = new Float32Array((n + 1) * M * 3), col = new Float32Array((n + 1) * M * 3);
     var T = [], i, k;
@@ -494,21 +505,24 @@ if (typeof module !== 'undefined') module.exports = VortexSim;
     requestAnimationFrame(frame);
     if (playing && sim) {
       sim.gamma = +el('gamma').value;
-      // advance a fixed amount of sim time per frame, with a wall-clock cap to keep 60 fps
-      var target = 0.02 * +el('speed').value, t0 = performance.now(), adv = 0;
-      while (adv < target && performance.now() - t0 < 10) adv += sim.step(Math.min(0.02, target - adv) || 0.02);
+      // fixed amount of simulated time per rendered frame (no wall-clock dependence)
+      sim.advance(0.02 * +el('speed').value);
       // loop each scene over its interesting window (the thin-core model has no viscosity,
-      // so late-time tangles are not meaningful)
-      if (sim.t > tMax[current] || !sim.fils.length) load(current, true);
+      // so late-time tangles are not meaningful); fade out, restart, fade in
+      if ((sim.t > tMax[current] || !sim.fils.length) && !fading) {
+        fading = true; canvas.style.opacity = 0;
+        setTimeout(function () { load(current, true); canvas.style.opacity = 1; fading = false; }, 450);
+      }
     }
     if (sim) {
       redraw();
-      // follow the centroid so travelling rings stay in view
-      var cx = 0, cy = 0, cz = 0, cnt = 0;
-      sim.fils.forEach(function (F) { for (var i = 0; i < F.n; i++) { cx += F.x[3 * i]; cy += F.x[3 * i + 1]; cz += F.x[3 * i + 2]; cnt++; } });
-      if (cnt) {
-        var d = new THREE.Vector3(cx / cnt, cy / cnt, cz / cnt).sub(controls.target).multiplyScalar(0.05);
-        controls.target.add(d); camera.position.add(d);
+      // leapfrogging rings travel far: follow them with a smoothly lerped target
+      // (other scenes keep a fixed camera target so reconnections never shift the view)
+      if (current === 'leapfrog' && sim.fils.length) {
+        var cz = 0, cnt = 0;
+        sim.fils.forEach(function (F) { for (var i = 0; i < F.n; i++) { cz += F.x[3 * i + 2]; cnt++; } });
+        var dz = (cz / cnt - controls.target.z) * 0.03;
+        controls.target.z += dz; camera.position.z += dz;
       }
     }
     controls.update();
