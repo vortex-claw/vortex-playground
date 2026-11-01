@@ -5,39 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vortex Playground</title>
 <meta name="description" content="Live 3D vortex-filament simulator in the browser: colliding vortex rings reconnect, leapfrogging rings, a trefoil knot and contrail (Crow) instability. By Team Vortex.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2232%22 fill=%22none%22 stroke=%22%233fd8ff%22 stroke-width=%2214%22/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2232%22 fill=%22none%22 stroke=%22%2358c4dd%22 stroke-width=%2214%22/%3E%3C/svg%3E">
 <style>
 :root {
-  --stage: #0b1020;
-  --bg: #0b1020;
-  --panel: rgba(16, 22, 42, 0.78);
-  --border: rgba(140, 170, 220, 0.22);
-  --text: #e6ecf8;
-  --muted: #93a0bb;
-  --accent: #3fd8ff;
-  --btn: rgba(255, 255, 255, 0.07);
-  --btn-hover: rgba(255, 255, 255, 0.14);
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #eef2f8; --panel: rgba(250, 252, 255, 0.9); --border: rgba(30, 50, 90, 0.18);
-    --text: #141a2c; --muted: #55607a; --accent: #0a8fb8;
-    --btn: rgba(10, 20, 50, 0.05); --btn-hover: rgba(10, 20, 50, 0.1);
-  }
-}
-:root[data-theme="light"] {
-  --bg: #eef2f8; --panel: rgba(250, 252, 255, 0.9); --border: rgba(30, 50, 90, 0.18);
-  --text: #141a2c; --muted: #55607a; --accent: #0a8fb8;
-  --btn: rgba(10, 20, 50, 0.05); --btn-hover: rgba(10, 20, 50, 0.1);
+  --stage: #0e0e0e; --bg: #0e0e0e; --panel: rgba(14,14,14,0.85); --border: rgba(236,230,226,0.18);
+  --text: #ece6e2; --muted: #888888; --accent: #58C4DD;
+  --btn: rgba(236,230,226,0.06); --btn-hover: rgba(236,230,226,0.13);
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; }
-body { background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { background: var(--bg); color: var(--text); font: 16px/1.4 "Latin Modern Roman", "CMU Serif", "Computer Modern", Georgia, "Times New Roman", serif; }
 #stage { position: fixed; inset: 0; background: var(--stage); }
 #stage canvas { display: block; touch-action: none; }
 h1 {
   position: fixed; top: 16px; left: 16px; right: 16px; margin: 0;
-  font-size: clamp(20px, 3.4vw, 30px); font-weight: 600; color: #e6ecf8; pointer-events: none;
+  font-size: clamp(20px, 3.4vw, 30px); font-weight: 400; color: var(--text); pointer-events: none;
 }
 .panel {
   position: fixed; left: 16px; right: 16px; bottom: 32px; max-width: 720px; margin: 0 auto;
@@ -64,7 +47,7 @@ button.on { border-color: var(--accent); color: var(--accent); }
 #more label { display: flex; align-items: center; gap: 8px; flex: 1 1 180px; color: var(--muted); font-size: 14px; }
 #more input { flex: 1; min-width: 60px; accent-color: var(--accent); }
 #more button { font-size: 14px; padding: 6px 12px; }
-footer { position: fixed; left: 16px; right: 16px; bottom: 8px; text-align: center; font-size: 11px; color: #93a0bb; pointer-events: none; }
+footer { position: fixed; left: 16px; right: 16px; bottom: 8px; text-align: center; font-size: 11px; color: var(--muted); pointer-events: none; }
 </style>
 </head>
 <body>
@@ -422,10 +405,10 @@ if (typeof module !== 'undefined') module.exports = VortexSim;
   var stage = document.getElementById('stage');
   var renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setClearColor(0x0b1020, 1);
+  renderer.setClearColor(0x0e0e0e, 1);
   stage.appendChild(renderer.domElement);
   var scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x0b1020, 9, 22);
+  scene.fog = new THREE.Fog(0x0e0e0e, 9, 22);
   var camera = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
   camera.up.set(0, 0, 1);
   var controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -435,7 +418,7 @@ if (typeof module !== 'undefined') module.exports = VortexSim;
   var rim = new THREE.DirectionalLight(0x88aaff, 0.35); rim.position.set(-5, -2, -4); scene.add(rim);
   var mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.1 });
   var group = new THREE.Group(); scene.add(group);
-  var C0 = new THREE.Color(0x3fd8ff), C1 = new THREE.Color(0xff9a3c);
+  var C0 = new THREE.Color(0x58c4dd), C1 = new THREE.Color(0xf7d96f);
 
   var sim = null, current = 'headon', playing = true;
   var el = function (id) { return document.getElementById(id); };
